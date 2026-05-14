@@ -4,6 +4,7 @@ export interface Audiobook {
     id: number;
     title: string;
     author: string;
+    full_name: string;
     status: 'uploaded' | 'processing' | 'completed' | 'failed';
     source_language: string;
     target_language: string;
@@ -13,6 +14,11 @@ export interface Audiobook {
     file_id: string;
     created_at: string;
     completed_at: string | null;
+    output_audio_path: string;
+    thumbnail: string | null;
+    thumbnail_url: string | null;
+    is_public: boolean;
+    chapter_titles: { chapter_number: number; title: string }[];
 }
 
 export interface AudiobookDetail extends Audiobook {
@@ -29,6 +35,7 @@ export interface AudiobookDetail extends Audiobook {
     updated_at: string;
     user: number;
     username: string;
+    full_name: string;
 }
 
 export interface PaginatedAudiobooks {
@@ -61,6 +68,7 @@ export const audiobookApi = {
         emotion_intensity: number;
         base_speed: number;
         status?: string;
+        is_public?: boolean;
     }): Promise<AudiobookDetail> =>
         djangoApi.post('/audiobooks/books/', data).then((r) => r.data),
 
@@ -84,4 +92,29 @@ export const audiobookApi = {
         stage: string;
         book_status: string;
     }> => djangoApi.get(`/audiobooks/books/${id}/task_status/`).then((r) => r.data),
+
+    retry: (id: number): Promise<{ task_id: string; status: string }> =>
+        djangoApi.post(`/audiobooks/books/${id}/retry/`).then((r) => r.data),
+
+    forceReset: (id: number): Promise<{ status: string }> =>
+        djangoApi.post(`/audiobooks/books/${id}/force_reset/`).then((r) => r.data),
+
+    downloadUrl: (id: number): string =>
+        `${djangoApi.defaults.baseURL}/audiobooks/books/${id}/download/`,
+
+    saveChapters: (id: number, chapters: { chapter_id: number; chapter_title: string; audio_url: string; duration: number }[]): Promise<{ saved: number }> =>
+        djangoApi.post(`/audiobooks/books/${id}/save_chapters/`, { chapters }).then((r) => r.data),
+
+    rename: (id: number, title: string): Promise<AudiobookDetail> =>
+        djangoApi.patch(`/audiobooks/books/${id}/`, { title }).then((r) => r.data),
+
+    uploadThumbnail: (id: number, file: File): Promise<Audiobook> => {
+        const formData = new FormData();
+        formData.append('thumbnail', file);
+        return djangoApi
+            .post(`/audiobooks/books/${id}/thumbnail/`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            .then((r) => r.data);
+    },
 };

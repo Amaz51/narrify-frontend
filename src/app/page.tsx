@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { useRef, useState } from "react";
+import { useState } from "react";
+
 import { NarrifyLogo } from "@/assets/logo/NarrifyLogo";
 
 const FEATURES = [
@@ -86,10 +87,9 @@ const TESTIMONIALS = [
 ];
 
 export default function Home() {
-    const heroRef = useRef<HTMLDivElement>(null);
-    const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
-    const heroY = useTransform(scrollYProgress, [0, 1], [0, -60]);
-    const heroOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
+    const { scrollYProgress } = useScroll();
+    const heroY = useTransform(scrollYProgress, [0, 0.3], [0, -60]);
+    const heroOpacity = useTransform(scrollYProgress, [0, 0.25], [1, 0]);
 
     const [playingDemo, setPlayingDemo] = useState<number | null>(null);
 
@@ -98,7 +98,8 @@ export default function Home() {
             <div className="space-y-32 pb-20">
 
                 {/* ── HERO ─────────────────────────────────────── */}
-                <section ref={heroRef} className="relative pt-12 pb-8 overflow-hidden min-h-[85vh] flex items-center">
+                <section className="relative pt-12 pb-8 overflow-hidden min-h-[85vh] flex items-center">
+
                     {/* Ambient blobs */}
                     <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
                         <div className="absolute -top-32 -right-32 w-[600px] h-[600px] rounded-full bg-narrify-purple/8 blur-3xl" />
@@ -194,7 +195,7 @@ export default function Home() {
                                     {Array.from({ length: 60 }).map((_, i) => {
                                         const heights = [30, 60, 45, 80, 35, 70, 50, 90, 40, 65];
                                         const h = heights[i % heights.length];
-                                        const speaker = i < 20 ? "bg-narrify-blue" : i < 40 ? "bg-narrify-purple" : "bg-slate-200";
+                                        const speaker = i < 20 ? "bg-narrify-blue" : i < 40 ? "bg-narrify-purple" : "bg-muted";
                                         return (
                                             <div
                                                 key={i}
@@ -300,7 +301,7 @@ export default function Home() {
                                 className="relative group"
                             >
                                 {i < 3 && (
-                                    <div className="hidden md:block absolute top-8 left-full w-full h-0.5 bg-gradient-to-r from-slate-200 to-transparent z-0" />
+                                    <div className="hidden md:block absolute top-8 left-full w-full h-0.5 bg-gradient-to-r from-border to-transparent z-0" />
                                 )}
                                 <div className="relative z-10 bg-card rounded-3xl border border-border p-7 shadow-sm group-hover:shadow-md group-hover:border-narrify-blue/20 transition-all duration-200 space-y-5">
                                     <div className="flex items-start justify-between">

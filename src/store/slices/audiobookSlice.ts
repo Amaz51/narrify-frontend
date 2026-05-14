@@ -78,7 +78,11 @@ const audiobookSlice = createSlice({
     extraReducers: (builder) => {
         builder
             .addCase(fetchAudiobooks.pending, (state) => {
-                state.isLoading = true;
+                // Only show the loading skeleton on the very first fetch (empty list).
+                // Background polls should not flash loading state.
+                if (state.audiobooks.length === 0) {
+                    state.isLoading = true;
+                }
                 state.error = null;
             })
             .addCase(fetchAudiobooks.fulfilled, (state, action) => {
@@ -90,9 +94,20 @@ const audiobookSlice = createSlice({
                 state.error = action.payload as string;
             });
 
-        builder.addCase(fetchAudiobookById.fulfilled, (state, action) => {
-            state.currentAudiobook = action.payload;
-        });
+        builder
+            .addCase(fetchAudiobookById.pending, (state) => {
+                state.isLoading = true;
+                state.error = null;
+            })
+            .addCase(fetchAudiobookById.fulfilled, (state, action) => {
+                state.isLoading = false;
+                state.currentAudiobook = action.payload;
+            })
+            .addCase(fetchAudiobookById.rejected, (state, action) => {
+                state.isLoading = false;
+                state.error = action.payload as string;
+            });
+
 
         builder.addCase(updateAudiobook.fulfilled, (state, action) => {
             state.currentAudiobook = action.payload;

@@ -24,6 +24,8 @@ export interface UserProfile {
     total_minutes_generated: number;
     created_at: string;
     is_staff: boolean;
+    profile_picture: string | null;
+    profile_picture_url: string | null;
 }
 
 export interface AuthResponse {
@@ -69,4 +71,14 @@ export const authApi = {
 
     googleAuth: (credential: string): Promise<AuthResponse> =>
         djangoApi.post('/auth/google/', { credential }).then((r) => r.data),
+
+    uploadProfilePicture: (file: File): Promise<UserProfile> => {
+        const formData = new FormData();
+        formData.append('profile_picture', file);
+        return djangoApi
+            .patch('/auth/profile/', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            .then((r) => r.data);
+    },
 };

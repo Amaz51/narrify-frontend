@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -8,14 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import {
     User, Shield, Key, Layout, Moon, Sun, Monitor,
     CheckCircle2, Headphones, Clock, Lock, Eye, EyeOff,
-    Copy, RefreshCw, Crown, ArrowUpRight, AlertCircle,
+    RefreshCw, Crown, ArrowUpRight, AlertCircle,
     Loader2, Globe2
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/utils/cn";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchUserProfile, logoutUser, updateProfile } from "@/store/slices/authSlice";
+import { fetchUserProfile, logoutUser, updateProfile, updateUserData } from "@/store/slices/authSlice";
 import { authApi } from "@/lib/api/auth";
 import { fetchAudiobooks } from "@/store/slices/audiobookSlice";
 import { format } from "date-fns";
@@ -92,8 +92,10 @@ export default function SettingsPage() {
     const [pwSaved, setPwSaved]       = useState(false);
     const [isPwLoading, setIsPwLoading] = useState(false);
 
-    // API key UI
-    const [keyRevealed, setKeyRevealed] = useState(false);
+    // Profile picture
+    const [uploadingPic, setUploadingPic] = useState(false);
+    const picInputRef = useRef<HTMLInputElement | null>(null);
+
 
     useEffect(() => {
         if (!isAuthenticated) { router.push("/auth/login"); return; }
@@ -108,6 +110,16 @@ export default function SettingsPage() {
             setPhone(user.phone_number || "");
         }
     }, [user]);
+
+    const handleProfilePicUpload = async (file: File) => {
+        setUploadingPic(true);
+        try {
+            const updated = await authApi.uploadProfilePicture(file);
+            dispatch(updateUserData(updated));
+        } catch { /* ignore */ } finally {
+            setUploadingPic(false);
+        }
+    };
 
     const handleSaveProfile = async () => {
         const result = await dispatch(updateProfile({ full_name: fullName, email, phone_number: phone }));
@@ -163,9 +175,21 @@ export default function SettingsPage() {
                     <aside className="space-y-1">
                         {/* Avatar card */}
                         <div className="bg-card rounded-2xl border border-border p-5 mb-4 flex flex-col items-center gap-3 text-center">
-                            <div className="w-16 h-16 rounded-2xl narrify-gradient flex items-center justify-center text-white font-black text-xl shadow-md shadow-narrify-blue/20">
-                                {initials}
-                            </div>
+                            <button
+                                className="relative w-16 h-16 rounded-2xl overflow-hidden group focus:outline-none shadow-md shadow-narrify-blue/20"
+                                title="Change profile picture"
+                                onClick={() => picInputRef.current?.click()}
+                            >
+                                {(user as any)?.profile_picture_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={(user as any).profile_picture_url} alt="Profile" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full narrify-gradient flex items-center justify-center text-white font-black text-xl">{initials}</div>
+                                )}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    {uploadingPic ? <Loader2 size={16} className="text-white animate-spin" /> : <RefreshCw size={14} className="text-white" />}
+                                </div>
+                            </button>
                             <div>
                                 <p className="font-black text-foreground text-sm">{user?.full_name || user?.username}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">{user?.email}</p>
@@ -212,11 +236,32 @@ export default function SettingsPage() {
                                             <CardDescription>Update your name, email, and contact details.</CardDescription>
                                         </CardHeader>
                                         <CardContent className="space-y-6">
+                                            {/* Hidden profile picture input */}
+                                            <input ref={picInputRef} type="file" accept="image/*" className="hidden"
+                                                onChange={(e) => {
+                                                    const f = e.target.files?.[0];
+                                                    if (f) handleProfilePicUpload(f);
+                                                    e.target.value = '';
+                                                }} />
+
                                             {/* Avatar row */}
                                             <div className="flex items-center gap-5 pb-6 border-b border-border">
-                                                <div className="w-20 h-20 rounded-2xl narrify-gradient flex items-center justify-center text-white font-black text-2xl flex-shrink-0">
-                                                    {initials}
-                                                </div>
+                                                <button
+                                                    className="relative w-20 h-20 rounded-2xl overflow-hidden group flex-shrink-0 focus:outline-none shadow-md shadow-narrify-blue/20"
+                                                    title="Change profile picture"
+                                                    onClick={() => picInputRef.current?.click()}
+                                                >
+                                                    {(user as any)?.profile_picture_url ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img src={(user as any).profile_picture_url} alt="Profile" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-full narrify-gradient flex items-center justify-center text-white font-black text-2xl">{initials}</div>
+                                                    )}
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
+                                                        {uploadingPic ? <Loader2 size={18} className="text-white animate-spin" /> : <RefreshCw size={16} className="text-white" />}
+                                                        <span className="text-white text-[10px] font-bold">Change</span>
+                                                    </div>
+                                                </button>
                                                 <div className="space-y-1">
                                                     <p className="font-black text-foreground">{user?.full_name || user?.username}</p>
                                                     <p className="text-sm text-muted-foreground">
@@ -490,50 +535,41 @@ export default function SettingsPage() {
                                 <motion.div key="api" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5">
                                     <Card>
                                         <CardHeader>
-                                            <CardTitle>API Key</CardTitle>
-                                            <CardDescription>Use this key to integrate Narrify into your applications.</CardDescription>
+                                            <CardTitle className="flex items-center gap-2">
+                                                API Access
+                                                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200">
+                                                    Coming Soon
+                                                </span>
+                                            </CardTitle>
+                                            <CardDescription>Programmatic access to the Narrify API is not yet available.</CardDescription>
                                         </CardHeader>
                                         <CardContent className="space-y-4">
-                                            <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-xl border border-border">
-                                                <Key size={16} className="text-muted-foreground flex-shrink-0" />
-                                                <p className="font-mono text-xs text-foreground flex-1 truncate">
-                                                    {keyRevealed ? "nr_live_sk_a3f8d2c1e94b7a6f2d1c8e3b5a7f4d9c2e1b6a3f" : "nr_live_••••••••••••••••••••••••••••••••••••4d9c"}
-                                                </p>
-                                                <button onClick={() => setKeyRevealed(!keyRevealed)}
-                                                    className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
-                                                    {keyRevealed ? <EyeOff size={15} /> : <Eye size={15} />}
-                                                </button>
-                                                <button className="text-muted-foreground hover:text-narrify-blue transition-colors flex-shrink-0"
-                                                    onClick={() => navigator.clipboard.writeText("nr_live_sk_a3f8d2c1e94b7a6f2d1c8e3b5a7f4d9c2e1b6a3f")}>
-                                                    <Copy size={15} />
-                                                </button>
+                                            <div className="flex items-start gap-4 p-5 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-500/20">
+                                                <AlertCircle size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                                                <div className="space-y-1">
+                                                    <p className="font-bold text-amber-800 dark:text-amber-300 text-sm">API keys are not yet active</p>
+                                                    <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                                                        Public API access is planned for a future release. You will be able to generate API keys here once the feature launches.
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="flex gap-3">
-                                                <Button variant="outline" className="gap-2 rounded-xl">
-                                                    <RefreshCw size={14} /> Regenerate Key
-                                                </Button>
+
+                                            <div className="p-5 bg-muted/40 rounded-2xl border border-border space-y-3">
+                                                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Planned capabilities</p>
+                                                <ul className="space-y-2 text-sm text-muted-foreground">
+                                                    {[
+                                                        "Upload PDFs and trigger audiobook generation via REST",
+                                                        "Webhook callbacks when generation completes",
+                                                        "Manage voices and speaker assignments programmatically",
+                                                        "Download generated audio through authenticated endpoints",
+                                                    ].map((item) => (
+                                                        <li key={item} className="flex items-start gap-2">
+                                                            <CheckCircle2 size={13} className="text-green-400 flex-shrink-0 mt-0.5" />
+                                                            {item}
+                                                        </li>
+                                                    ))}
+                                                </ul>
                                             </div>
-                                        </CardContent>
-                                    </Card>
-
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle>Quick Start</CardTitle>
-                                            <CardDescription>Connect to the Narrify API in seconds.</CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <pre className="bg-slate-900 text-green-400 rounded-xl p-4 text-xs overflow-x-auto leading-relaxed">
-{`# Upload a PDF and generate multi-speaker audio
-curl -X POST https://api.narrify.ai/api/upload \\
-  -H "Authorization: Bearer nr_live_sk_..." \\
-  -F "file=@my-book.pdf"
-
-# Start async generation
-curl -X POST https://api.narrify.ai/api/generate/async \\
-  -H "Authorization: Bearer nr_live_sk_..." \\
-  -H "Content-Type: application/json" \\
-  -d '{"file_id":"...", "base_speed":1.0}'`}
-                                            </pre>
                                         </CardContent>
                                     </Card>
                                 </motion.div>

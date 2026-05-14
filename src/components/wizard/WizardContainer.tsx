@@ -40,7 +40,7 @@ export const WizardContainer = () => {
                             <div key={step.id} className="flex flex-col items-center gap-3 flex-1">
                                 <div
                                     className={cn(
-                                        "relative w-12 h-12 rounded-2xl flex items-center justify-center border-2 transition-all duration-400 bg-white z-10",
+                                        "relative w-12 h-12 rounded-2xl flex items-center justify-center border-2 transition-all duration-400 bg-background z-10",
                                         isActive
                                             ? "border-narrify-blue text-narrify-blue shadow-lg shadow-narrify-blue/20 scale-110"
                                             : isCompleted

@@ -28,6 +28,10 @@ interface NarrifyState {
     generationResult: any | null;  // Full /generate response
     audioUrl: string | null;
 
+    // Chapter selection
+    selectedChapterIds: number[];
+    setSelectedChapterIds: (ids: number[]) => void;
+
     // Actions
     setStep: (step: WizardStep) => void;
     setFile: (file: File | null) => void;
@@ -61,7 +65,9 @@ export const useNarrifyStore = create<NarrifyState>((set) => ({
     processedData: null,
     generationResult: null,
     audioUrl: null,
+    selectedChapterIds: [],
 
+    setSelectedChapterIds: (selectedChapterIds) => set({ selectedChapterIds }),
     setStep: (step) => set({ currentStep: step }),
     setFile: (file) => set({ file }),
     setLanguages: (source, target) => set({ sourceLanguage: source, targetLanguage: target }),
@@ -91,5 +97,6 @@ export const useNarrifyStore = create<NarrifyState>((set) => ({
         processedData: null,
         generationResult: null,
         audioUrl: null,
+        selectedChapterIds: [],
     }),
 }));

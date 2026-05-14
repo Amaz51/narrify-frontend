@@ -14,6 +14,7 @@ import { cn } from '@/utils/cn';
 import { Progress } from './Step1Upload';
 import Link from 'next/link';
 import { audiobookApi } from '@/lib/api/audiobooks';
+import { djangoApi } from '@/lib/api/axios';
 import { useAppDispatch } from '@/store/hooks';
 import { fetchAudiobooks, updateAudiobook } from '@/store/slices/audiobookSlice';
 
@@ -29,9 +30,9 @@ const GENERATION_STEPS = [
 ];
 
 const DOWNLOAD_FORMATS = [
-    { label: 'MP3 High Quality', format: '320kbps · Stereo', icon: FileAudio, key: 'mp3' },
-    { label: 'WAV Lossless', format: '48kHz · 24-bit', icon: FileBadge, key: 'wav' },
-    { label: 'M4B Audiobook', format: 'With Chapter Marks', icon: Headphones, key: 'm4b' },
+    { label: 'MP3 High Quality', format: '320kbps · Stereo', icon: FileAudio, key: 'mp3', available: true },
+    { label: 'WAV Lossless', format: 'Coming Soon', icon: FileBadge, key: 'wav', available: false },
+    { label: 'M4B Audiobook', format: 'Coming Soon', icon: Headphones, key: 'm4b', available: false },
 ];
 
 // Stable waveform bars
@@ -40,37 +41,154 @@ const WAVEFORM = Array.from({ length: 100 }, (_, i) => {
     return heights[i % heights.length];
 });
 
+// Safely resolve audio URL regardless of whether it's relative or absolute.
+function resolveAudioUrl(rawUrl: string | null): string | null {
+    if (!rawUrl) return null;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) return rawUrl;
+    // Relative path — prepend FastAPI base (strip trailing /api if present, then re-add full path)
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api')
+        .replace(/\/api\/?$/, '');
+    const path = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+    return `${apiBase}${path}`;
+}
+
 export const Step4Generation = () => {
     const dispatch = useAppDispatch();
     const {
         setStep, isProcessing, setIsProcessing, progress, setProgress, resetWizard,
         speakers, file, fileId, processedData, sourceLanguage, targetLanguage,
         generationResult, audioUrl, setGenerationResult, setAudioUrl,
-        djangoBookId, setDjangoBookId,
+        djangoBookId, setDjangoBookId, selectedChapterIds,
     } = useNarrifyStore();
 
     const [isGenerated, setIsGenerated] = useState(false);
     const [generationError, setGenerationError] = useState<string | null>(null);
+    const [isPublic, setIsPublic] = useState(false); // visibility setting for the generated audiobook
     const [isPlaying, setIsPlaying] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [playPosition, setPlayPosition] = useState(0);
     const [currentStep, setCurrentStep] = useState(0);
     const [generationTime, setGenerationTime] = useState(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    // Store bookId in a ref so the poll callback can access the latest value
+    const bookIdRef = useRef<number | null>(null);
 
-    // Auto-start generation on mount
-    useEffect(() => {
-        if (!isGenerated && !generationResult) {
-            startGeneration();
-        } else if (generationResult) {
-            // Already generated in a previous visit to this step
-            setIsGenerated(true);
+    const TASK_ID_KEY = 'narrify_task_id';
+    const BOOK_ID_KEY = 'narrify_pending_book_id';
+
+    const stopPolling = () => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
         }
+    };
+
+    const handleGenerationDone = async (data: any, resolvedBookId: number | null) => {
+        stopPolling();
+        localStorage.removeItem(TASK_ID_KEY);
+        localStorage.removeItem(BOOK_ID_KEY);
+
+        setGenerationResult(data);
+        setAudioUrl(data.audio_url);
+        setProgress(100);
+        setCurrentStep(GENERATION_STEPS.length - 1);
+        setIsProcessing(false);
+        setIsGenerated(true);
+
+        if (resolvedBookId) {
+            try {
+                const audioPath = (() => {
+                    const u = data.audio_url ?? '';
+                    if (!u.startsWith('http')) return u;
+                    try { return new URL(u).pathname; } catch { return u; }
+                })();
+                await dispatch(updateAudiobook({
+                    id: resolvedBookId,
+                    data: {
+                        status: 'completed',
+                        output_audio_path: audioPath,
+                        total_duration: Math.round(data.duration ?? 0),
+                        generation_time: Math.round(data.generation_time ?? 0),
+                        total_segments: data.segments_processed ?? 0,
+                    },
+                }));
+                if (data.chapters?.length > 0) {
+                    await audiobookApi.saveChapters(resolvedBookId, data.chapters);
+                }
+                dispatch(fetchAudiobooks());
+            } catch (e) {
+                console.warn('Could not update Django audiobook record:', e);
+            }
+        }
+    };
+
+    const handleGenerationError = async (errMsg: string, resolvedBookId: number | null) => {
+        stopPolling();
+        localStorage.removeItem(TASK_ID_KEY);
+        localStorage.removeItem(BOOK_ID_KEY);
+        setGenerationError(errMsg);
+        setIsProcessing(false);
+        if (resolvedBookId) {
+            try {
+                await dispatch(updateAudiobook({
+                    id: resolvedBookId,
+                    data: { status: 'failed', error_message: errMsg },
+                }));
+                dispatch(fetchAudiobooks());
+            } catch { /* non-fatal */ }
+        }
+    };
+
+    const startPolling = (taskId: string, resolvedBookId: number | null) => {
+        stopPolling();
+        pollIntervalRef.current = setInterval(async () => {
+            try {
+                const res = await apiService.getTaskStatus(taskId);
+                const task = res.data;
+
+                // Update progress from real server data
+                if (typeof task.progress === 'number') {
+                    setProgress(task.progress);
+                    const nextStep = GENERATION_STEPS.findIndex(s => s.pct > task.progress);
+                    setCurrentStep(nextStep === -1 ? GENERATION_STEPS.length - 1 : Math.max(0, nextStep - 1));
+                }
+
+                if (task.status === 'done') {
+                    await handleGenerationDone(task.result, resolvedBookId);
+                } else if (task.status === 'error') {
+                    await handleGenerationError(task.error || 'Generation failed on server.', resolvedBookId);
+                }
+            } catch (e) {
+                console.warn('Poll error (will retry):', e);
+            }
+        }, 3000);
+    };
+
+    // Auto-start generation on mount (or resume if tab was switched)
+    useEffect(() => {
+        if (generationResult) {
+            setIsGenerated(true);
+            return;
+        }
+
+        // Resume polling if a task is already running (e.g. user switched tabs)
+        const savedTaskId = localStorage.getItem(TASK_ID_KEY);
+        const savedBookId = localStorage.getItem(BOOK_ID_KEY);
+        if (savedTaskId) {
+            const resumedBookId = savedBookId ? parseInt(savedBookId, 10) : null;
+            bookIdRef.current = resumedBookId;
+            setIsProcessing(true);
+            startPolling(savedTaskId, resumedBookId);
+            return;
+        }
+
+        startGeneration();
+
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+            stopPolling();
         };
     }, []);
 
@@ -86,33 +204,14 @@ export const Step4Generation = () => {
         return () => { if (timerRef.current) clearInterval(timerRef.current); };
     }, [isProcessing]);
 
-    // Simulated progress (caps at 95% until real response)
-    useEffect(() => {
-        if (isProcessing) {
-            let p = 0;
-            progressIntervalRef.current = setInterval(() => {
-                p += 0.5;
-                const capped = Math.min(p, 95);
-                setProgress(Math.round(capped));
-
-                const nextStep = GENERATION_STEPS.findIndex(s => s.pct > capped);
-                setCurrentStep(nextStep === -1 ? GENERATION_STEPS.length - 1 : Math.max(0, nextStep - 1));
-
-                if (p >= 95) clearInterval(progressIntervalRef.current!);
-            }, 1000);
-        } else {
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-        }
-        return () => { if (progressIntervalRef.current) clearInterval(progressIntervalRef.current); };
-    }, [isProcessing]);
-
     const startGeneration = async () => {
         setIsProcessing(true);
         setProgress(0);
         setGenerationError(null);
 
+        let resolvedBookId: number | null = null;
+
         try {
-            // Build per-speaker average emotion intensity
             const avgEmotion = speakers.length > 0
                 ? speakers.reduce((sum, s) => sum + s.emotion, 0) / speakers.length
                 : 0.5;
@@ -123,7 +222,7 @@ export const Step4Generation = () => {
             const emotionIntensity = parseFloat((avgEmotion * 3).toFixed(2));
             const baseSpeed = parseFloat(avgSpeed.toFixed(2));
 
-            // Create Django record before generation so we can update it after
+            // Create Django record before generation
             let bookId = djangoBookId;
             if (!bookId && fileId) {
                 try {
@@ -137,89 +236,73 @@ export const Step4Generation = () => {
                         emotion_intensity: emotionIntensity,
                         base_speed: baseSpeed,
                         status: 'processing',
+                        is_public: isPublic,
                     });
                     bookId = record.id;
                     setDjangoBookId(record.id);
                 } catch (e) {
-                    // Non-fatal — dashboard save fails silently
                     console.warn('Could not create Django audiobook record:', e);
                 }
             }
+            resolvedBookId = bookId;
+            bookIdRef.current = bookId;
+
+            const allChapters = processedData?.chapters ?? [];
+            const chaptersToGenerate = selectedChapterIds.length > 0
+                ? allChapters.filter((ch: any) => selectedChapterIds.includes(ch.chapter_id))
+                : allChapters;
 
             const payload = {
                 file_id: fileId!,
-                chapters: processedData?.chapters ?? [],
+                chapters: chaptersToGenerate,
                 emotion_intensity: emotionIntensity,
                 base_speed: baseSpeed,
                 source_language: sourceLanguage.toLowerCase(),
                 target_language: targetLanguage.toLowerCase(),
             };
 
-            const response = await apiService.generateAudiobook(payload);
-            const data = response.data;
+            // Fire the async endpoint — returns immediately with a task_id
+            const response = await apiService.generateAudiobookAsync(payload);
+            const { task_id } = response.data;
 
-            // data: { audiobook_id, audio_url, duration, segments_processed, speakers_used, generation_time }
-            setGenerationResult(data);
-            setAudioUrl(data.audio_url);
+            // Persist so the user can switch tabs and come back
+            localStorage.setItem(TASK_ID_KEY, task_id);
+            if (resolvedBookId) localStorage.setItem(BOOK_ID_KEY, String(resolvedBookId));
 
-            // Jump progress to 100
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-            setProgress(100);
-            setCurrentStep(GENERATION_STEPS.length - 1);
-            setIsProcessing(false);
-            setIsGenerated(true);
+            // Start polling for progress
+            startPolling(task_id, resolvedBookId);
 
-            // Persist generation result to Django
-            if (bookId) {
-                try {
-                    // Strip base URL — save only the relative path so the
-                    // audiobook detail page can reconstruct it using the current env var
-                    const audioPath = (() => {
-                        const u = data.audio_url ?? '';
-                        if (!u.startsWith('http')) return u;
-                        try { return new URL(u).pathname; } catch { return u; }
-                    })();
-                    await dispatch(updateAudiobook({
-                        id: bookId,
-                        data: {
-                            status: 'completed',
-                            output_audio_path: audioPath,
-                            total_duration: Math.round(data.duration ?? 0),
-                            generation_time: Math.round(data.generation_time ?? 0),
-                            total_segments: data.segments_processed ?? 0,
-                        },
-                    }));
-                    dispatch(fetchAudiobooks());
-                } catch (e) {
-                    console.warn('Could not update Django audiobook record:', e);
-                }
-            }
-
-            if (process.env.NEXT_PUBLIC_DEBUG === 'true') {
-                console.log(`✅ Generated: ${data.duration}s audio in ${data.generation_time}s`);
-            }
         } catch (err: any) {
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
             console.error('Generation failed:', err);
             const errMsg = err.response?.data?.detail || 'Generation failed. Please check the backend is running.';
-            setGenerationError(errMsg);
-            setIsProcessing(false);
+            await handleGenerationError(errMsg, resolvedBookId);
         }
     };
 
-    // Simulate playhead movement (for the custom UI player)
+    // Sync custom player state FROM the real audio element
     useEffect(() => {
-        let playInterval: NodeJS.Timeout;
-        if (isPlaying) {
-            playInterval = setInterval(() => {
-                setPlayPosition(p => {
-                    if (p >= 100) { setIsPlaying(false); return 0; }
-                    return p + 0.1;
-                });
-            }, 120);
-        }
-        return () => clearInterval(playInterval);
-    }, [isPlaying]);
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        const onTimeUpdate = () => {
+            if (audio.duration) {
+                setPlayPosition((audio.currentTime / audio.duration) * 100);
+            }
+        };
+        const onEnded = () => { setIsPlaying(false); setPlayPosition(0); };
+
+        audio.addEventListener('timeupdate', onTimeUpdate);
+        audio.addEventListener('play', () => setIsPlaying(true));
+        audio.addEventListener('pause', () => setIsPlaying(false));
+        audio.addEventListener('ended', onEnded);
+
+        return () => {
+            audio.removeEventListener('timeupdate', onTimeUpdate);
+            audio.removeEventListener('play', () => setIsPlaying(true));
+            audio.removeEventListener('pause', () => setIsPlaying(false));
+            audio.removeEventListener('ended', onEnded);
+        };
+    }, [isGenerated]);
 
     // Audio element mute sync
     useEffect(() => {
@@ -230,26 +313,47 @@ export const Step4Generation = () => {
     const remainingMins = Math.floor(estimatedRemaining / 60);
     const remainingSecs = estimatedRemaining % 60;
 
-    const fullAudioUrl = audioUrl
-        ? `${process.env.NEXT_PUBLIC_API_URL}${audioUrl.startsWith('/api') ? audioUrl.replace('/api', '') : audioUrl}`
-        : null;
+    const fullAudioUrl = resolveAudioUrl(audioUrl);
 
     const handleDownload = async (format: string) => {
-        if (!generationResult?.audio_url) return;
-        const filename = generationResult.audio_url.split('/').pop();
-        try {
-            const response = await apiService.downloadAudio(filename);
-            const blob = new Blob([response.data]);
-            const url = window.URL.createObjectURL(blob);
+        if (format !== 'mp3') return; // WAV / M4B not yet supported
+
+        // Prefer the Django-proxied download (enforces ownership)
+        if (djangoBookId) {
+            try {
+                // Use djangoApi so the axios interceptor adds Authorization: Bearer <token>
+                const response = await djangoApi.get(
+                    `/audiobooks/books/${djangoBookId}/download/`,
+                    { responseType: 'blob' }
+                );
+                const blob = new Blob([response.data]);
+                const objectUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = objectUrl;
+                const disposition = (response.headers['content-disposition'] as string) || '';
+                const match = disposition.match(/filename="([^"]+)"/);
+                a.download = match?.[1] || `narrify_audiobook_${djangoBookId}.mp3`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(objectUrl);
+            } catch {
+                window.open(audiobookApi.downloadUrl(djangoBookId), '_blank');
+            }
+            return;
+        }
+
+        // Fallback when Django record wasn't saved (rare): direct FastAPI link
+        const rawUrl = generationResult?.audio_url;
+        if (!rawUrl) return;
+        const directUrl = resolveAudioUrl(rawUrl);
+        if (directUrl) {
             const a = document.createElement('a');
-            a.href = url;
-            a.download = `audiobook_${Date.now()}.${format}`;
+            a.href = directUrl;
+            a.target = '_blank';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error('Download failed:', err);
         }
     };
 
@@ -283,7 +387,7 @@ export const Step4Generation = () => {
                             <div className="flex items-start justify-between">
                                 <div className="space-y-1">
                                     <h3 className="text-2xl font-black">Synthesizing Audiobook</h3>
-                                    <p className="text-slate-500 font-medium">
+                                    <p className="text-muted-foreground font-medium">
                                         Processing with XTTS v2 neural voices
                                     </p>
                                 </div>
@@ -294,7 +398,7 @@ export const Step4Generation = () => {
 
                             <Progress value={progress} className="h-3" />
 
-                            <div className="flex items-center justify-between text-sm text-slate-400">
+                            <div className="flex items-center justify-between text-sm text-muted-foreground">
                                 <div className="flex items-center gap-2">
                                     <Clock size={13} />
                                     <span>
@@ -330,16 +434,16 @@ export const Step4Generation = () => {
                             {speakers.slice(0, 3).map((speaker, i) => {
                                 const spkProgress = Math.max(0, Math.min(100, (progress - i * 20)));
                                 return (
-                                    <div key={speaker.id} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-100">
+                                    <div key={speaker.id} className="flex items-center gap-4 p-4 bg-card rounded-xl border border-border">
                                         <div className={cn("w-2 h-2 rounded-full flex-shrink-0", spkProgress >= 100 ? "bg-green-400" : spkProgress > 0 ? "bg-narrify-blue animate-pulse" : "bg-slate-200")} />
-                                        <span className="flex-1 text-sm font-bold text-slate-700">{speaker.name}</span>
+                                        <span className="flex-1 text-sm font-bold text-foreground">{speaker.name}</span>
                                         <div className="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                             <div
                                                 className="h-full progress-bar transition-all duration-500"
                                                 style={{ width: `${spkProgress}%` }}
                                             />
                                         </div>
-                                        <span className="text-xs font-mono text-slate-400 w-10 text-right">{Math.round(spkProgress)}%</span>
+                                        <span className="text-xs font-mono text-muted-foreground w-10 text-right">{Math.round(spkProgress)}%</span>
                                     </div>
                                 );
                             })}
@@ -380,31 +484,16 @@ export const Step4Generation = () => {
                     <CheckCircle2 size={40} className="text-green-500" />
                 </motion.div>
                 <h2 className="text-4xl font-black tracking-tight">Your Audiobook is Ready!</h2>
-                <p className="text-slate-500 text-lg">
+                <p className="text-muted-foreground text-lg">
                     Generated in{" "}
                     <span className="font-bold text-narrify-blue">{Math.floor(generationTime / 60)}m {generationTime % 60}s</span>
                     {" "}with {speakers.length} speakers · XTTS v2 Neural TTS
                 </p>
             </motion.div>
 
-            {/* Native Audio Player — shows only if we have a real URL */}
+            {/* Hidden audio element — driven entirely by the custom player below */}
             {fullAudioUrl && (
-                <motion.div
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 }}
-                    className="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 space-y-3"
-                >
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Generated Audio</p>
-                    <audio
-                        ref={audioRef}
-                        src={fullAudioUrl}
-                        controls
-                        className="w-full"
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
-                    />
-                </motion.div>
+                <audio ref={audioRef} src={fullAudioUrl} preload="metadata" className="hidden" />
             )}
 
             {/* Custom waveform player card */}
@@ -412,11 +501,11 @@ export const Step4Generation = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden"
+                className="bg-card rounded-3xl border border-border shadow-xl overflow-hidden"
             >
                 {/* Waveform visualization */}
-                <div className="p-8 space-y-4 border-b border-slate-100">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-400 mb-2">
+                <div className="p-8 space-y-4 border-b border-border">
+                    <div className="flex items-center justify-between text-xs font-bold text-muted-foreground mb-2">
                         <span>Chapter 1: {generationResult?.audiobook_id || 'Generated Audiobook'}</span>
                         <div className="flex gap-4">
                             {speakers.slice(0, 3).map((s, i) => (
@@ -431,8 +520,17 @@ export const Step4Generation = () => {
                         </div>
                     </div>
 
-                    {/* Waveform bars */}
-                    <div className="flex items-end gap-[2px] h-28">
+                    {/* Waveform bars — click any bar to seek */}
+                    <div
+                        className="flex items-end gap-[2px] h-28 cursor-pointer"
+                        onClick={(e) => {
+                            const audio = audioRef.current;
+                            if (!audio || !audio.duration) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const pct = (e.clientX - rect.left) / rect.width;
+                            audio.currentTime = pct * audio.duration;
+                        }}
+                    >
                         {WAVEFORM.map((h, i) => {
                             const isPlayed = (i / WAVEFORM.length) * 100 < playPosition;
                             const section = i < 35 ? "narrify-blue" : i < 65 ? "narrify-purple" : "narrify-cyan";
@@ -443,7 +541,7 @@ export const Step4Generation = () => {
                                         "flex-1 rounded-full transition-all",
                                         isPlayed
                                             ? `bg-${section}`
-                                            : "bg-slate-200"
+                                            : "bg-muted"
                                     )}
                                     style={{ height: `${h}%` }}
                                     animate={isPlaying && Math.abs((i / WAVEFORM.length) * 100 - playPosition) < 8
@@ -456,10 +554,13 @@ export const Step4Generation = () => {
                         })}
                     </div>
 
-                    {/* Playhead track */}
+                    {/* Playhead track — click to seek */}
                     <div className="audio-track" onClick={(e) => {
+                        const audio = audioRef.current;
+                        if (!audio || !audio.duration) return;
                         const rect = e.currentTarget.getBoundingClientRect();
-                        setPlayPosition(((e.clientX - rect.left) / rect.width) * 100);
+                        const pct = (e.clientX - rect.left) / rect.width;
+                        audio.currentTime = pct * audio.duration;
                     }}>
                         <div className="audio-track-fill" style={{ width: `${playPosition}%` }} />
                         <div
@@ -468,7 +569,7 @@ export const Step4Generation = () => {
                         />
                     </div>
 
-                    <div className="flex justify-between text-xs font-mono text-slate-400">
+                    <div className="flex justify-between text-xs font-mono text-muted-foreground">
                         <span>{Math.floor(playPosition * 0.01 * (generationResult?.duration ?? 0))}s</span>
                         <span>{duration}</span>
                     </div>
@@ -476,30 +577,40 @@ export const Step4Generation = () => {
 
                 {/* Controls */}
                 <div className="p-6 flex items-center gap-4">
-                    <Button variant="ghost" size="icon" className="text-slate-400" onClick={() => setPlayPosition(Math.max(0, playPosition - 5))}>
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={() => {
+                        const audio = audioRef.current;
+                        if (audio) audio.currentTime = Math.max(0, audio.currentTime - 10);
+                    }}>
                         <SkipBack size={20} />
                     </Button>
                     <Button
                         size="icon"
                         variant="narrify"
                         className="w-14 h-14 rounded-full shadow-lg glow-blue flex-shrink-0"
-                        onClick={() => setIsPlaying(!isPlaying)}
+                        onClick={() => {
+                            const audio = audioRef.current;
+                            if (!audio) return;
+                            if (audio.paused) audio.play(); else audio.pause();
+                        }}
                     >
                         {isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-0.5" />}
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-slate-400" onClick={() => setPlayPosition(Math.min(100, playPosition + 5))}>
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={() => {
+                        const audio = audioRef.current;
+                        if (audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10);
+                    }}>
                         <SkipForward size={20} />
                     </Button>
 
                     <div className="flex-1" />
 
-                    <Button variant="ghost" size="icon" className="text-slate-400" onClick={() => setIsMuted(!isMuted)}>
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={() => setIsMuted(!isMuted)}>
                         {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-slate-400">
+                    <Button variant="ghost" size="icon" className="text-muted-foreground">
                         <Settings size={18} />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-slate-400">
+                    <Button variant="ghost" size="icon" className="text-muted-foreground">
                         <Share2 size={18} />
                     </Button>
                     <Button variant="outline" className="gap-2 rounded-xl" onClick={resetWizard}>
@@ -509,6 +620,43 @@ export const Step4Generation = () => {
                 </div>
             </motion.div>
 
+            {/* Visibility toggle */}
+            <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="flex items-center justify-between p-5 bg-card rounded-2xl border border-border"
+            >
+                <div className="space-y-0.5">
+                    <p className="font-bold text-foreground text-sm">Audiobook Visibility</p>
+                    <p className="text-xs text-muted-foreground">
+                        {isPublic ? 'Public — visible to all users in the shared library' : 'Private — only visible in your dashboard'}
+                    </p>
+                </div>
+                <button
+                    onClick={async () => {
+                        const next = !isPublic;
+                        setIsPublic(next);
+                        if (djangoBookId) {
+                            try {
+                                await audiobookApi.update(djangoBookId, { is_public: next } as any);
+                            } catch { /* non-fatal */ }
+                        }
+                    }}
+                    className={cn(
+                        "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+                        isPublic ? "bg-narrify-blue" : "bg-muted"
+                    )}
+                    role="switch"
+                    aria-checked={isPublic}
+                >
+                    <span className={cn(
+                        "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition duration-200",
+                        isPublic ? "translate-x-5" : "translate-x-0"
+                    )} />
+                </button>
+            </motion.div>
+
             {/* Download formats */}
             <motion.div
                 initial={{ opacity: 0, y: 16 }}
@@ -516,22 +664,30 @@ export const Step4Generation = () => {
                 transition={{ delay: 0.35 }}
                 className="space-y-4"
             >
-                <h3 className="font-black text-lg text-slate-800">Download Formats</h3>
+                <h3 className="font-black text-lg text-foreground">Download Formats</h3>
                 <div className="grid md:grid-cols-3 gap-4">
                     {DOWNLOAD_FORMATS.map((item) => (
                         <button
                             key={item.key}
-                            onClick={() => handleDownload(item.key)}
-                            className="group p-6 bg-white rounded-2xl border-2 border-slate-100 hover:border-narrify-blue/40 hover:shadow-lg transition-all flex flex-col items-center gap-3 text-center"
+                            onClick={() => item.available && handleDownload(item.key)}
+                            disabled={!item.available}
+                            className={cn(
+                                "group p-6 bg-card rounded-2xl border-2 transition-all flex flex-col items-center gap-3 text-center",
+                                item.available
+                                    ? "border-border hover:border-narrify-blue/40 hover:shadow-lg cursor-pointer"
+                                    : "border-border opacity-50 cursor-not-allowed"
+                            )}
                         >
-                            <item.icon size={32} className="text-slate-300 group-hover:text-narrify-blue transition-colors" />
+                            <item.icon size={32} className={item.available ? "text-slate-300 group-hover:text-narrify-blue transition-colors" : "text-slate-200"} />
                             <div>
-                                <p className="font-black text-slate-800">{item.label}</p>
-                                <p className="text-[11px] text-slate-400 uppercase tracking-widest font-bold mt-0.5">{item.format}</p>
+                                <p className="font-black text-foreground">{item.label}</p>
+                                <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-bold mt-0.5">{item.format}</p>
                             </div>
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-narrify-blue opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Download size={13} /> Download
-                            </div>
+                            {item.available && (
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-narrify-blue opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Download size={13} /> Download
+                                </div>
+                            )}
                         </button>
                     ))}
                 </div>
@@ -550,9 +706,9 @@ export const Step4Generation = () => {
                     { label: "Audio Duration", value: duration },
                     { label: "Generation Time", value: generationResult?.generation_time ? `${Math.round(generationResult.generation_time)}s` : `${generationTime}s` },
                 ].map((s, i) => (
-                    <div key={i} className="bg-white rounded-2xl border border-slate-100 p-4 text-center">
+                    <div key={i} className="bg-card rounded-2xl border border-border p-4 text-center">
                         <p className="text-xl font-black narrify-text-gradient">{s.value}</p>
-                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">{s.label}</p>
+                        <p className="text-[11px] text-muted-foreground font-medium mt-0.5">{s.label}</p>
                     </div>
                 ))}
             </motion.div>

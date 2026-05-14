@@ -1,37 +1,27 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-    DndContext,
-    DragEndEvent,
-    DragOverEvent,
-    DragOverlay,
-    DragStartEvent,
-    PointerSensor,
-    useSensor,
-    useSensors,
-    closestCorners,
-    useDroppable,
+    DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent,
+    PointerSensor, useSensor, useSensors, closestCorners, useDroppable,
 } from "@dnd-kit/core";
 import {
-    SortableContext,
-    verticalListSortingStrategy,
-    useSortable,
-    arrayMove,
+    SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchAudiobooks } from "@/store/slices/audiobookSlice";
 import { fetchUserProfile } from "@/store/slices/authSlice";
-import { Audiobook } from "@/lib/api/audiobooks";
+import { Audiobook, audiobookApi } from "@/lib/api/audiobooks";
 import { format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/utils/cn";
 import {
     Headphones, Clock, Globe2, CheckCircle2, Loader2,
     AlertCircle, FileText, GripVertical, Plus, LayoutGrid,
+    Play, RefreshCw, Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -73,7 +63,6 @@ const COLUMNS: Record<ColumnId, {
     },
 };
 
-// Default column per audiobook status
 function defaultColumn(status: Audiobook["status"]): ColumnId {
     if (status === "processing") return "generating";
     if (status === "completed") return "done";
@@ -85,23 +74,21 @@ type BoardColumns = Record<ColumnId, number[]>;
 
 // ─── SortableCard ─────────────────────────────────────────────────────────────
 
-function SortableCard({ book, columnId, isDragOverlay = false }: {
+function SortableCard({
+    book, columnId, isDragOverlay = false, onStartProcessing, processingId,
+}: {
     book: Audiobook;
     columnId: ColumnId;
     isDragOverlay?: boolean;
+    onStartProcessing: (id: number) => void;
+    processingId: number | null;
 }) {
     const {
-        attributes, listeners, setNodeRef,
-        transform, transition, isDragging,
-    } = useSortable({
-        id: String(book.id),
-        data: { type: "card", columnId },
-    });
+        attributes, listeners, setNodeRef, transform, transition, isDragging,
+    } = useSortable({ id: String(book.id), data: { type: "card", columnId } });
 
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    };
+    const style = { transform: CSS.Transform.toString(transform), transition };
+    const isStarting = processingId === book.id;
 
     return (
         <div
@@ -115,7 +102,7 @@ function SortableCard({ book, columnId, isDragOverlay = false }: {
                 isDragOverlay && "shadow-2xl rotate-1 ring-2 ring-narrify-blue/30",
             )}
         >
-            {/* Grip icon (visual only) + title */}
+            {/* Title row */}
             <div className="flex items-start gap-2">
                 <span className="mt-0.5 flex-shrink-0 text-muted-foreground/40 group-hover:text-narrify-blue transition-colors">
                     <GripVertical size={16} />
@@ -123,7 +110,7 @@ function SortableCard({ book, columnId, isDragOverlay = false }: {
                 <div className="flex-1 min-w-0">
                     <p
                         className="font-bold text-foreground text-sm leading-snug truncate hover:text-narrify-blue transition-colors cursor-pointer"
-                        onClick={() => { window.location.href = `/audiobook/${book.id}`; }}
+                        onClick={(e) => { e.stopPropagation(); window.location.href = `/audiobook/${book.id}`; }}
                     >
                         {book.title}
                     </p>
@@ -131,23 +118,41 @@ function SortableCard({ book, columnId, isDragOverlay = false }: {
                 </div>
             </div>
 
-            {/* Meta row */}
-            <div className="flex flex-wrap items-center gap-2 text-[10px] font-medium text-slate-400">
+            {/* Meta */}
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-medium text-muted-foreground/70">
                 {book.total_duration > 0 && (
-                    <span className="flex items-center gap-1">
-                        <Clock size={10} /> {book.duration_minutes}m
-                    </span>
+                    <span className="flex items-center gap-1"><Clock size={10} /> {book.duration_minutes}m</span>
                 )}
-                <span className="flex items-center gap-1">
-                    <Globe2 size={10} /> {book.source_language}
-                </span>
-                <span className="flex items-center gap-1 ml-auto">
-                    {format(new Date(book.created_at), "MMM d")}
-                </span>
+                <span className="flex items-center gap-1"><Globe2 size={10} /> {book.source_language}</span>
+                <span className="flex items-center gap-1 ml-auto">{format(new Date(book.created_at), "MMM d")}</span>
             </div>
 
-            {/* Status chip */}
-            <StatusChip status={book.status} />
+            {/* Status + action */}
+            <div className="flex items-center justify-between gap-2">
+                <StatusChip status={book.status} />
+                {columnId === "todo" && book.status !== "processing" && (
+                    <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); onStartProcessing(book.id); }}
+                        disabled={isStarting}
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-narrify-blue/10 text-narrify-blue hover:bg-narrify-blue hover:text-white rounded-lg transition-all disabled:opacity-50"
+                    >
+                        {isStarting
+                            ? <Loader2 size={10} className="animate-spin" />
+                            : <Zap size={10} />}
+                        {isStarting ? "Starting…" : "Generate"}
+                    </button>
+                )}
+                {columnId === "done" && book.status === "completed" && (
+                    <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); window.location.href = `/audiobook/${book.id}`; }}
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold bg-green-50 text-green-600 hover:bg-green-500 hover:text-white rounded-lg transition-all"
+                    >
+                        <Play size={10} /> Play
+                    </button>
+                )}
+            </div>
         </div>
     );
 }
@@ -155,24 +160,24 @@ function SortableCard({ book, columnId, isDragOverlay = false }: {
 function StatusChip({ status }: { status: Audiobook["status"] }) {
     if (status === "completed")
         return (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-green-50 text-green-600 rounded-full border border-green-100">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-full border border-green-100 dark:border-green-500/20">
                 <CheckCircle2 size={9} /> Completed
             </span>
         );
     if (status === "processing")
         return (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-600 rounded-full border border-amber-100">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full border border-amber-100 dark:border-amber-500/20">
                 <Loader2 size={9} className="animate-spin" /> Processing
             </span>
         );
     if (status === "uploaded")
         return (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-100">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full border border-blue-100 dark:border-blue-500/20">
                 <FileText size={9} /> Uploaded
             </span>
         );
     return (
-        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-red-50 text-red-500 rounded-full border border-red-100">
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-full border border-red-100 dark:border-red-500/20">
             <AlertCircle size={9} /> Failed
         </span>
     );
@@ -181,28 +186,26 @@ function StatusChip({ status }: { status: Audiobook["status"] }) {
 // ─── Column ───────────────────────────────────────────────────────────────────
 
 function Column({
-    columnId, books, isOver,
+    columnId, books, isOver, onStartProcessing, processingId,
 }: {
     columnId: ColumnId;
     books: Audiobook[];
     isOver: boolean;
+    onStartProcessing: (id: number) => void;
+    processingId: number | null;
 }) {
     const col = COLUMNS[columnId];
     const { setNodeRef } = useDroppable({ id: columnId });
 
     return (
         <div className="flex flex-col w-72 flex-shrink-0">
-            {/* Header */}
             <div className={cn("rounded-t-2xl p-4 bg-gradient-to-r text-white", col.gradient)}>
                 <div className="flex items-center justify-between">
                     <span className="font-black text-sm">{col.title}</span>
-                    <span className="text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">
-                        {books.length}
-                    </span>
+                    <span className="text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">{books.length}</span>
                 </div>
             </div>
 
-            {/* Drop zone */}
             <div
                 ref={setNodeRef}
                 className={cn(
@@ -210,10 +213,7 @@ function Column({
                     isOver ? "bg-narrify-blue/5 border-narrify-blue/30" : "bg-muted/30"
                 )}
             >
-                <SortableContext
-                    items={books.map((b) => String(b.id))}
-                    strategy={verticalListSortingStrategy}
-                >
+                <SortableContext items={books.map((b) => String(b.id))} strategy={verticalListSortingStrategy}>
                     <AnimatePresence initial={false}>
                         {books.map((book) => (
                             <motion.div
@@ -223,7 +223,12 @@ function Column({
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 transition={{ duration: 0.15 }}
                             >
-                                <SortableCard book={book} columnId={columnId} />
+                                <SortableCard
+                                    book={book}
+                                    columnId={columnId}
+                                    onStartProcessing={onStartProcessing}
+                                    processingId={processingId}
+                                />
                             </motion.div>
                         ))}
                     </AnimatePresence>
@@ -233,9 +238,7 @@ function Column({
                             "h-28 rounded-xl border-2 border-dashed flex items-center justify-center text-center p-4 transition-colors",
                             isOver ? "border-narrify-blue/40 bg-narrify-blue/5" : "border-border"
                         )}>
-                            <p className="text-[11px] text-muted-foreground font-medium leading-snug">
-                                {col.emptyText}
-                            </p>
+                            <p className="text-[11px] text-muted-foreground font-medium leading-snug">{col.emptyText}</p>
                         </div>
                     )}
                 </SortableContext>
@@ -252,11 +255,10 @@ export default function BoardPage() {
     const { user, isAuthenticated } = useAppSelector((s) => s.auth);
     const { audiobooks, isLoading } = useAppSelector((s) => s.audiobook);
 
-    const [columns, setColumns] = useState<BoardColumns>({
-        backlog: [], todo: [], generating: [], done: [],
-    });
+    const [columns, setColumns] = useState<BoardColumns>({ backlog: [], todo: [], generating: [], done: [] });
     const [activeId, setActiveId] = useState<string | null>(null);
     const [overColumnId, setOverColumnId] = useState<ColumnId | null>(null);
+    const [processingId, setProcessingId] = useState<number | null>(null);
     const initializedRef = useRef(false);
 
     const sensors = useSensors(
@@ -269,51 +271,113 @@ export default function BoardPage() {
         dispatch(fetchAudiobooks());
     }, [isAuthenticated, dispatch, router]);
 
-    // Load saved board state from localStorage (per-user), or build defaults
+    // Poll every 10s for status updates when any book is processing (stable interval)
+    const audiobooksRef = useRef(audiobooks);
+    audiobooksRef.current = audiobooks;
     useEffect(() => {
-        if (!user?.id || audiobooks.length === 0 || initializedRef.current) return;
-        initializedRef.current = true;
+        const interval = setInterval(() => {
+            if (audiobooksRef.current.some((b) => b.status === "processing")) {
+                dispatch(fetchAudiobooks());
+            }
+        }, 10000);
+        return () => clearInterval(interval);
+    }, [dispatch]); // stable — never restarts
+
+    // Sync board columns whenever audiobooks update
+    useEffect(() => {
+        if (!user?.id || audiobooks.length === 0) return;
 
         const storageKey = `narrify_board_${user.id}`;
         const saved = localStorage.getItem(storageKey);
 
-        if (saved) {
+        if (saved && !initializedRef.current) {
             try {
                 const parsed: BoardColumns = JSON.parse(saved);
-                // Validate structure
                 const isValid = COLUMN_ORDER.every((id) => Array.isArray(parsed[id]));
                 if (isValid) {
-                    // Remove IDs for books that no longer exist
+                    initializedRef.current = true;
                     const bookIdSet = new Set(audiobooks.map((b) => b.id));
                     const cleaned: BoardColumns = { backlog: [], todo: [], generating: [], done: [] };
                     for (const col of COLUMN_ORDER) {
                         cleaned[col] = parsed[col].filter((id) => bookIdSet.has(id));
                     }
-                    // Add books that are new (not in saved state)
                     const savedAllIds = new Set(COLUMN_ORDER.flatMap((col) => parsed[col]));
                     const newBooks = audiobooks.filter((b) => !savedAllIds.has(b.id));
-                    for (const book of newBooks) {
-                        cleaned[defaultColumn(book.status)].push(book.id);
+                    for (const book of newBooks) cleaned[defaultColumn(book.status)].push(book.id);
+
+                    // Re-sync processing/completed books to correct columns
+                    const resync: BoardColumns = { ...cleaned };
+                    for (const book of audiobooks) {
+                        if (book.status === "processing") {
+                            for (const col of COLUMN_ORDER) {
+                                resync[col] = resync[col].filter((id) => id !== book.id);
+                            }
+                            if (!resync.generating.includes(book.id)) resync.generating.push(book.id);
+                        } else if (book.status === "completed") {
+                            for (const col of (["backlog", "todo", "generating"] as ColumnId[])) {
+                                resync[col] = resync[col].filter((id) => id !== book.id);
+                            }
+                            if (!resync.done.includes(book.id)) resync.done.push(book.id);
+                        }
                     }
-                    setColumns(cleaned);
+                    setColumns(resync);
                     return;
                 }
-            } catch { /* fall through to default */ }
+            } catch { /* fall through */ }
         }
 
-        // Build default layout from audiobook statuses
-        const initial: BoardColumns = { backlog: [], todo: [], generating: [], done: [] };
-        for (const book of audiobooks) {
-            initial[defaultColumn(book.status)].push(book.id);
+        if (!initializedRef.current) {
+            initializedRef.current = true;
+            const initial: BoardColumns = { backlog: [], todo: [], generating: [], done: [] };
+            for (const book of audiobooks) initial[defaultColumn(book.status)].push(book.id);
+            setColumns(initial);
+        } else {
+            // Already initialized — just sync status changes
+            setColumns((prev) => {
+                const next = { ...prev };
+                for (const book of audiobooks) {
+                    if (book.status === "processing") {
+                        for (const col of COLUMN_ORDER) next[col] = next[col].filter((id) => id !== book.id);
+                        if (!next.generating.includes(book.id)) next.generating.push(book.id);
+                    } else if (book.status === "completed") {
+                        for (const col of (["backlog", "todo", "generating"] as ColumnId[])) {
+                            next[col] = next[col].filter((id) => id !== book.id);
+                        }
+                        if (!next.done.includes(book.id)) next.done.push(book.id);
+                    }
+                }
+                return next;
+            });
         }
-        setColumns(initial);
     }, [user?.id, audiobooks]);
 
-    // Persist to localStorage whenever columns change (after init)
+    // Persist on change
     useEffect(() => {
         if (!user?.id || !initializedRef.current) return;
         localStorage.setItem(`narrify_board_${user.id}`, JSON.stringify(columns));
     }, [columns, user?.id]);
+
+    // ── Start Processing ──────────────────────────────────────────────────────
+
+    const handleStartProcessing = useCallback(async (bookId: number) => {
+        setProcessingId(bookId);
+        try {
+            await audiobookApi.startProcessing(bookId);
+            // Move to generating column
+            setColumns((prev) => {
+                const next = { ...prev };
+                for (const col of COLUMN_ORDER) next[col] = next[col].filter((id) => id !== bookId);
+                next.generating.push(bookId);
+                return next;
+            });
+            // Refresh audiobooks to get updated status
+            dispatch(fetchAudiobooks());
+        } catch (err) {
+            console.error("Failed to start processing:", err);
+        } finally {
+            setProcessingId(null);
+        }
+    }, [dispatch]);
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -339,7 +403,6 @@ export default function BoardPage() {
         const overId = String(over.id);
 
         const sourceCol = findColumnOfCard(activeCardId);
-        // over.id could be a card ID or a column ID
         const targetCol = (COLUMN_ORDER as readonly string[]).includes(overId)
             ? (overId as ColumnId)
             : findColumnOfCard(overId);
@@ -348,7 +411,6 @@ export default function BoardPage() {
 
         if (!sourceCol || !targetCol || sourceCol === targetCol) return;
 
-        // Move card to target column during drag (live preview)
         setColumns((prev) => {
             const sourceItems = prev[sourceCol].filter((id) => id !== Number(activeCardId));
             const targetItems = [...prev[targetCol]];
@@ -366,24 +428,18 @@ export default function BoardPage() {
 
         const activeCardId = String(active.id);
         const overId = String(over.id);
-
         const col = findColumnOfCard(activeCardId);
         if (!col) return;
 
-        // If dropped on a card in the same column — reorder
         const overIsCard = !(COLUMN_ORDER as readonly string[]).includes(overId);
         if (overIsCard && findColumnOfCard(overId) === col) {
             const items = columns[col];
             const oldIdx = items.indexOf(Number(activeCardId));
             const newIdx = items.indexOf(Number(overId));
             if (oldIdx !== newIdx) {
-                setColumns((prev) => ({
-                    ...prev,
-                    [col]: arrayMove(prev[col], oldIdx, newIdx),
-                }));
+                setColumns((prev) => ({ ...prev, [col]: arrayMove(prev[col], oldIdx, newIdx) }));
             }
         }
-        // Cross-column move already handled in dragOver
     };
 
     const activeBook = activeId ? bookById(Number(activeId)) : null;
@@ -391,25 +447,43 @@ export default function BoardPage() {
 
     if (!isAuthenticated) return null;
 
+    const processingCount = audiobooks.filter((b) => b.status === "processing").length;
+
     return (
         <MainLayout>
             <div className="space-y-6">
                 {/* Header */}
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="space-y-1">
-                        <h1 className="text-3xl font-black tracking-tight flex items-center gap-3 text-foreground">
-                            <LayoutGrid size={28} className="text-narrify-blue" />
+                        <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-3 text-foreground">
+                            <LayoutGrid size={26} className="text-narrify-blue" />
                             Project Board
                         </h1>
-                        <p className="text-muted-foreground">
+                        <p className="text-muted-foreground text-sm">
                             Drag audiobooks between columns to track their pipeline stage.
+                            {processingCount > 0 && (
+                                <span className="ml-2 text-amber-500 font-medium">
+                                    <Loader2 size={11} className="inline animate-spin mr-1" />
+                                    {processingCount} processing — auto-refreshing
+                                </span>
+                            )}
                         </p>
                     </div>
-                    <Link href="/create">
-                        <Button variant="narrify" className="gap-2 rounded-xl shadow-lg shadow-narrify-blue/20">
-                            <Plus size={16} /> New Audiobook
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 text-muted-foreground hover:text-foreground rounded-xl"
+                            onClick={() => dispatch(fetchAudiobooks())}
+                        >
+                            <RefreshCw size={14} /> Refresh
                         </Button>
-                    </Link>
+                        <Link href="/create">
+                            <Button variant="narrify" className="gap-2 rounded-xl shadow-lg shadow-narrify-blue/20">
+                                <Plus size={16} /> New Audiobook
+                            </Button>
+                        </Link>
+                    </div>
                 </div>
 
                 {/* Loading skeletons */}
@@ -420,7 +494,7 @@ export default function BoardPage() {
                                 <div className="h-14 rounded-t-2xl bg-muted animate-pulse" />
                                 <div className="rounded-b-2xl border border-border bg-muted/30 p-3 space-y-2.5 min-h-[480px]">
                                     {[1, 2].map((i) => (
-                                        <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />
+                                        <div key={i} className="h-28 rounded-xl bg-muted animate-pulse" />
                                     ))}
                                 </div>
                             </div>
@@ -448,18 +522,21 @@ export default function BoardPage() {
                                         columnId={colId}
                                         books={books}
                                         isOver={overColumnId === colId}
+                                        onStartProcessing={handleStartProcessing}
+                                        processingId={processingId}
                                     />
                                 );
                             })}
                         </div>
 
-                        {/* Drag overlay — ghost card that follows cursor */}
                         <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.18,0.67,0.6,1.22)" }}>
                             {activeBook && (
                                 <SortableCard
                                     book={activeBook}
                                     columnId={activeBookColumn as ColumnId}
                                     isDragOverlay
+                                    onStartProcessing={() => { }}
+                                    processingId={null}
                                 />
                             )}
                         </DragOverlay>
@@ -468,7 +545,11 @@ export default function BoardPage() {
 
                 {/* Empty state */}
                 {!isLoading && audiobooks.length === 0 && (
-                    <div className="text-center py-20 space-y-4">
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="text-center py-20 space-y-4"
+                    >
                         <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto">
                             <Headphones size={28} className="text-muted-foreground/50" />
                         </div>
@@ -478,7 +559,7 @@ export default function BoardPage() {
                                 <Plus size={16} /> Create Your First Audiobook
                             </Button>
                         </Link>
-                    </div>
+                    </motion.div>
                 )}
             </div>
         </MainLayout>

@@ -75,16 +75,16 @@ export const Step2Language = () => {
             </div>
 
             {/* Source language card */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div className="bg-card rounded-3xl border border-border shadow-sm p-6">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-2xl">
+                        <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center text-2xl">
                             {LANGUAGES.find(l => l.name === sourceLanguage)?.flag ?? '🌐'}
                         </div>
                         <div>
-                            <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-0.5">Detected Source Language</p>
-                            <p className="text-xl font-black text-slate-900">{sourceLanguage}</p>
-                            <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mt-0.5">
+                            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Detected Source Language</p>
+                            <p className="text-xl font-black text-foreground">{sourceLanguage}</p>
+                            <p className="text-xs text-muted-foreground font-medium flex items-center gap-1 mt-0.5">
                                 <Info size={11} /> Automatically detected from your PDF content
                             </p>
                         </div>
@@ -102,12 +102,12 @@ export const Step2Language = () => {
                     <div className="space-y-1">
                         <div className="flex items-center gap-2">
                             <Languages size={18} className="text-narrify-blue" />
-                            <h3 className="font-black text-slate-900">Enable Translation</h3>
+                            <h3 className="font-black text-foreground">Enable Translation</h3>
                             <span className="px-2 py-0.5 bg-narrify-purple/10 text-narrify-purple text-[10px] font-black uppercase tracking-wider rounded-full border border-narrify-purple/15">
                                 Optional
                             </span>
                         </div>
-                        <p className="text-sm text-slate-500">
+                        <p className="text-sm text-muted-foreground">
                             Powered by NLLB-200 — translate your PDF content before generating the audiobook. Adds 5–10 seconds.
                         </p>
                     </div>
@@ -116,7 +116,7 @@ export const Step2Language = () => {
                         onClick={() => setEnableTranslation(!enableTranslation)}
                         className={cn(
                             "relative flex-shrink-0 w-12 h-6 rounded-full transition-colors duration-300",
-                            enableTranslation ? "bg-narrify-blue" : "bg-slate-200"
+                            enableTranslation ? "bg-narrify-blue" : "bg-muted"
                         )}
                     >
                         <div className={cn(
@@ -159,12 +159,12 @@ export const Step2Language = () => {
                                 {/* Language grid with search */}
                                 <div className="space-y-3">
                                     <div className="relative">
-                                        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                                         <input
                                             value={searchQuery}
                                             onChange={e => setSearchQuery(e.target.value)}
                                             placeholder="Search language..."
-                                            className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-narrify-blue/20 outline-none"
+                                            className="w-full pl-10 pr-4 py-2.5 text-sm bg-card border border-border rounded-xl focus:ring-2 focus:ring-narrify-blue/20 outline-none text-foreground placeholder:text-muted-foreground"
                                         />
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
@@ -178,7 +178,7 @@ export const Step2Language = () => {
                                                         "flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-left text-sm font-medium transition-all",
                                                         isSelected
                                                             ? "bg-narrify-blue text-white border-narrify-blue shadow-md"
-                                                            : "bg-white text-slate-700 border-slate-200 hover:border-narrify-blue/30 hover:bg-slate-50"
+                                                            : "bg-card text-foreground border-border hover:border-narrify-blue/30 hover:bg-muted/50"
                                                     )}
                                                 >
                                                     <span className="text-base flex-shrink-0">{lang.flag}</span>
@@ -228,32 +228,32 @@ export const Step2Language = () => {
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="p-5 bg-white rounded-2xl border border-narrify-blue/20 shadow-sm"
+                    className="p-5 bg-card rounded-2xl border border-narrify-blue/20 shadow-sm"
                 >
                     <div className="flex items-center gap-3">
                         <Sparkles size={16} className="text-narrify-purple" />
-                        <p className="text-sm font-bold text-slate-800">
+                        <p className="text-sm font-bold text-foreground">
                             Translation Pipeline:{" "}
                             <span className="text-narrify-blue">{sourceLanguage}</span>
-                            <span className="text-slate-400 mx-2">→</span>
+                            <span className="text-muted-foreground mx-2">→</span>
                             <span className="text-narrify-purple">{targetLanguage}</span>
                         </p>
-                        <span className="ml-auto text-xs text-slate-400 font-medium">+5-10 seconds</span>
+                        <span className="ml-auto text-xs text-muted-foreground font-medium">+5-10 seconds</span>
                     </div>
                 </motion.div>
             )}
 
             {/* No translation note */}
             {!enableTranslation && (
-                <div className="flex items-center gap-2 text-sm text-slate-400 p-4 bg-slate-50 rounded-2xl">
-                    <Check size={14} className="text-green-500" />
-                    Audiobook will be generated in <strong className="text-slate-700 ml-1">{sourceLanguage}</strong>. No translation applied.
+                <div className="flex items-center gap-2 text-sm text-muted-foreground p-4 bg-muted/40 rounded-2xl">
+                    <Check size={14} className="text-green-500 dark:text-green-400" />
+                    Audiobook will be generated in <strong className="text-foreground ml-1">{sourceLanguage}</strong>. No translation applied.
                 </div>
             )}
 
             {/* Navigation */}
-            <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-                <Button variant="ghost" onClick={() => setStep(1)} className="gap-2 text-slate-500">
+            <div className="flex justify-between items-center pt-4 border-t border-border">
+                <Button variant="ghost" onClick={() => setStep(1)} className="gap-2 text-muted-foreground">
                     <ChevronLeft size={16} /> Back
                 </Button>
                 <Button size="lg" variant="narrify" onClick={() => setStep(3)} className="h-12 px-8 rounded-2xl gap-2 group">

@@ -128,10 +128,10 @@ export const Step1Upload = () => {
                     isDragging
                         ? "border-narrify-purple bg-narrify-purple/5 scale-[1.01]"
                         : file
-                            ? "border-green-300 bg-green-50/50"
+                            ? "border-green-300 dark:border-green-500/40 bg-green-50/50 dark:bg-green-500/5"
                             : error
-                                ? "border-red-300 bg-red-50/50 cursor-default"
-                                : "border-slate-200 hover:border-narrify-blue/50 hover:bg-narrify-blue/2 bg-slate-50/30"
+                                ? "border-red-300 dark:border-red-500/40 bg-red-50/50 dark:bg-red-500/5 cursor-default"
+                                : "border-border hover:border-narrify-blue/50 hover:bg-narrify-blue/3 bg-muted/20"
                 )}
                 onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
@@ -163,12 +163,12 @@ export const Step1Upload = () => {
                                     <FileText size={44} />
                                 </motion.div>
                                 <div className="space-y-2">
-                                    <p className="text-xl font-bold text-slate-800">
+                                    <p className="text-xl font-bold text-foreground">
                                         {isDragging ? "Drop it here!" : "Click to upload or drag & drop"}
                                     </p>
-                                    <p className="text-sm text-slate-400 font-medium">PDF only · Max 50MB · Any language</p>
+                                    <p className="text-sm text-muted-foreground font-medium">PDF only · Max 50MB · Any language</p>
                                 </div>
-                                <div className="flex items-center gap-2 text-xs text-slate-400">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <Sparkles size={12} className="text-narrify-purple" />
                                     Supports RTL languages: Urdu, Arabic, Hebrew
                                 </div>
@@ -209,13 +209,13 @@ export const Step1Upload = () => {
                                 className="w-full max-w-md space-y-5"
                             >
                                 {/* File card */}
-                                <div className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-200 shadow-md">
-                                    <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
+                                <div className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border shadow-md">
+                                    <div className="w-14 h-14 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 flex items-center justify-center flex-shrink-0">
                                         <FileText size={28} className="text-red-500" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-slate-900 truncate">{file.name}</p>
-                                        <p className="text-sm text-slate-400 mt-0.5">
+                                        <p className="font-bold text-foreground truncate">{file.name}</p>
+                                        <p className="text-sm text-muted-foreground mt-0.5">
                                             {(file.size / (1024 * 1024)).toFixed(2)} MB
                                         </p>
                                     </div>
@@ -236,17 +236,17 @@ export const Step1Upload = () => {
                                 {/* Progress */}
                                 <div className="space-y-2.5">
                                     <div className="flex justify-between text-sm font-semibold">
-                                        <span className="text-slate-600">
+                                        <span className="text-muted-foreground">
                                             {isUploading ? "Uploading to server..." : uploadProgress < 100 ? "Processing..." : "✓ Upload complete"}
                                         </span>
-                                        <span className={uploadProgress < 100 ? "text-narrify-blue" : "text-green-500"}>{uploadProgress}%</span>
+                                        <span className={uploadProgress < 100 ? "text-narrify-blue" : "text-green-500 dark:text-green-400"}>{uploadProgress}%</span>
                                     </div>
                                     <Progress value={uploadProgress} />
                                     {uploadProgress === 100 && (
                                         <motion.p
                                             initial={{ opacity: 0, y: 4 }}
                                             animate={{ opacity: 1, y: 0 }}
-                                            className="text-xs text-green-500 font-medium flex items-center gap-1"
+                                            className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1"
                                         >
                                             <CheckCircle2 size={12} /> File validated — click Next to continue
                                         </motion.p>
@@ -265,11 +265,11 @@ export const Step1Upload = () => {
                     { icon: FileWarning, label: "Max 50MB", desc: "Compress if larger" },
                     { icon: BookOpen, label: "Any Language", desc: "200+ langs supported" },
                 ].map((item, i) => (
-                    <div key={i} className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-slate-100 text-sm">
+                    <div key={i} className="flex items-center gap-3 p-4 bg-card rounded-2xl border border-border text-sm">
                         <item.icon size={16} className="text-narrify-blue flex-shrink-0" />
                         <div>
-                            <span className="font-bold text-slate-700">{item.label} </span>
-                            <span className="text-slate-400">{item.desc}</span>
+                            <span className="font-bold text-foreground">{item.label} </span>
+                            <span className="text-muted-foreground">{item.desc}</span>
                         </div>
                     </div>
                 ))}
@@ -304,13 +304,13 @@ export const Step1Upload = () => {
                                     <button
                                         key={i}
                                         onClick={() => handleDemoSelect(demo)}
-                                        className="text-left p-4 bg-white rounded-2xl border border-slate-200 hover:border-narrify-blue/40 hover:shadow-md transition-all space-y-1"
+                                        className="text-left p-4 bg-card rounded-2xl border border-border hover:border-narrify-blue/40 hover:shadow-md transition-all space-y-1"
                                     >
                                         <div className="flex items-center gap-2">
                                             <FileText size={14} className="text-red-500" />
-                                            <span className="text-xs font-bold text-slate-600 truncate">{demo.name}</span>
+                                            <span className="text-xs font-bold text-foreground truncate">{demo.name}</span>
                                         </div>
-                                        <div className="flex gap-3 text-[11px] text-slate-400">
+                                        <div className="flex gap-3 text-[11px] text-muted-foreground">
                                             <span>{demo.size}</span>
                                             <span>{demo.pages} pages</span>
                                         </div>

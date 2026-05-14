@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NarrifyLogo } from '@/assets/logo/NarrifyLogo';
@@ -52,6 +52,7 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
     if (isAuthPage) return <>{children}</>;
 
     return (
+        <Suspense fallback={null}>
         <div className="min-h-screen bg-background transition-colors duration-300">
             {/* ── Navbar ─────────────────────────────────────────────── */}
             <header className="sticky top-0 z-50 glassmorphism border-b border-border/60 transition-colors duration-300">
@@ -105,8 +106,15 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                             <Bell size={18} />
                         </Button>
                         <Link href="/settings" className="hidden md:block">
-                            <div className="w-9 h-9 rounded-xl narrify-gradient flex items-center justify-center text-white text-xs font-black cursor-pointer hover:opacity-90 hover:scale-105 active:scale-95 transition-all duration-150 shadow-md shadow-narrify-blue/20">
-                                {initials}
+                            <div className="w-9 h-9 rounded-xl overflow-hidden cursor-pointer hover:opacity-90 hover:scale-105 active:scale-95 transition-all duration-150 shadow-md shadow-narrify-blue/20 flex-shrink-0">
+                                {(user as any)?.profile_picture_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={(user as any).profile_picture_url} alt="Profile" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full narrify-gradient flex items-center justify-center text-white text-xs font-black">
+                                        {initials}
+                                    </div>
+                                )}
                             </div>
                         </Link>
 
@@ -179,8 +187,15 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                             {/* User profile row */}
                             {user && (
                                 <div className="mx-4 mt-4 p-4 rounded-2xl bg-accent/60 border border-border/50 flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl narrify-gradient flex items-center justify-center text-white text-sm font-black flex-shrink-0 shadow-md shadow-narrify-blue/20">
-                                        {initials}
+                                    <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 shadow-md shadow-narrify-blue/20">
+                                        {(user as any)?.profile_picture_url ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img src={(user as any).profile_picture_url} alt="Profile" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full narrify-gradient flex items-center justify-center text-white text-sm font-black">
+                                                {initials}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="min-w-0">
                                         <p className="font-bold text-foreground text-sm truncate">{user.full_name || user.username}</p>
@@ -272,5 +287,6 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                 </div>
             </footer>
         </div>
+        </Suspense>
     );
 };

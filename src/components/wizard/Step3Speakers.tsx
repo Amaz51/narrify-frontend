@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useNarrifyStore, Speaker } from '@/stores/useNarrifyStore';
 import { apiService } from '@/services/api';
 
-const FASTAPI_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api';
+const FASTAPI_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 interface ApiVoice { id: string; name: string; gender: string; }
 import { Button } from '@/components/ui/button';
@@ -19,25 +20,25 @@ import { Progress } from './Step1Upload';
 const GENDER_STYLES = {
     male: {
         badge: 'badge-male',
-        bg: 'bg-blue-50',
-        border: 'border-blue-100',
+        bg: 'bg-blue-50 dark:bg-blue-500/10',
+        border: 'border-blue-100 dark:border-blue-500/20',
         icon: 'text-blue-500',
         label: 'Male',
         emoji: '♂',
     },
     female: {
         badge: 'badge-female',
-        bg: 'bg-pink-50',
-        border: 'border-pink-100',
+        bg: 'bg-pink-50 dark:bg-pink-500/10',
+        border: 'border-pink-100 dark:border-pink-500/20',
         icon: 'text-pink-500',
         label: 'Female',
         emoji: '♀',
     },
     neutral: {
         badge: 'badge-neutral',
-        bg: 'bg-slate-50',
-        border: 'border-slate-200',
-        icon: 'text-slate-500',
+        bg: 'bg-muted/50',
+        border: 'border-border',
+        icon: 'text-muted-foreground',
         label: 'Neutral',
         emoji: '◎',
     },
@@ -89,6 +90,12 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
         ? filteredApiVoices.map(v => ({ id: v.id, name: v.name, type: 'Neural' }))
         : DEFAULT_VOICES[speaker.gender];
 
+    // Resolve the currently selected voice — null means voiceId is set but the voice was deleted
+    const selectedVoice = speaker.voiceId ? voices.find(v => v.id === speaker.voiceId) ?? null : null;
+    const voiceIsStale = speaker.voiceId != null && selectedVoice === null;
+    const displayVoiceName = selectedVoice?.name ?? (voiceIsStale ? '⚠ Voice removed' : (voices[0]?.name ?? 'Select a voice'));
+    const displayVoiceType = selectedVoice?.type ?? (voiceIsStale ? '—' : (voices[0]?.type ?? '—'));
+
     const handleNameSave = () => {
         if (editName.trim()) updateSpeaker(speaker.id, { name: editName.trim() });
         setIsEditingName(false);
@@ -124,13 +131,13 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md hover:border-narrify-blue/20 transition-all"
+            className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden hover:shadow-md hover:border-narrify-blue/20 transition-all"
         >
             {/* Card header */}
             <div className={cn("px-6 pt-6 pb-4 border-b", style.bg, style.border)}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0", `bg-${speaker.gender === 'male' ? 'blue' : speaker.gender === 'female' ? 'pink' : 'slate'}-100`)}>
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0", speaker.gender === 'male' ? 'bg-blue-100 dark:bg-blue-500/15' : speaker.gender === 'female' ? 'bg-pink-100 dark:bg-pink-500/15' : 'bg-muted')}>
                             {style.emoji}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -149,7 +156,7 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2 group/name cursor-pointer" onClick={() => setIsEditingName(true)}>
-                                    <p className="font-black text-lg text-slate-900 truncate">{speaker.name}</p>
+                                    <p className="font-black text-lg text-foreground truncate">{speaker.name}</p>
                                     <Edit3 size={13} className="text-slate-300 group-hover/name:text-narrify-blue transition-colors flex-shrink-0" />
                                 </div>
                             )}
@@ -182,17 +189,22 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
             <div className="p-6 space-y-6">
                 {/* Voice selector */}
                 <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Assigned Voice</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Assigned Voice</label>
                     <button
                         onClick={() => setShowVoicePicker(!showVoicePicker)}
-                        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl hover:border-narrify-blue/30 transition-all text-sm font-semibold text-slate-700"
+                        className={cn(
+                            "w-full flex items-center justify-between px-4 py-3 border rounded-xl transition-all text-sm font-semibold",
+                            voiceIsStale
+                                ? "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400"
+                                : "bg-muted/50 border-border text-foreground hover:border-narrify-blue/30"
+                        )}
                     >
                         <div className="flex items-center gap-2">
-                            <Mic size={14} className="text-narrify-blue" />
-                            {voices.find(v => v.id === speaker.voiceId)?.name ?? voices[0].name}
+                            <Mic size={14} className={voiceIsStale ? "text-red-500" : "text-narrify-blue"} />
+                            {displayVoiceName}
                         </div>
                         <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            {voices.find(v => v.id === speaker.voiceId)?.type ?? voices[0].type}
+                            {displayVoiceType}
                         </div>
                     </button>
 
@@ -213,18 +225,20 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
                                                 "w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-sm font-medium transition-all",
                                                 speaker.voiceId === v.id
                                                     ? "bg-narrify-blue text-white border-narrify-blue"
-                                                    : "bg-white text-slate-700 border-slate-200 hover:border-narrify-blue/30"
+                                                    : "bg-card text-foreground border-border hover:border-narrify-blue/30"
                                             )}
                                         >
                                             <span>{v.name}</span>
                                             <span className={cn("text-[10px] font-bold uppercase", speaker.voiceId === v.id ? "text-white/70" : "text-slate-400")}>{v.type}</span>
                                         </button>
                                     ))}
-                                    <button
+                                    <Link
+                                        href="/voices"
+                                        target="_blank"
                                         className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-dashed border-narrify-blue/30 text-sm font-bold text-narrify-blue hover:bg-narrify-blue/5 transition-all"
                                     >
-                                        <Upload size={13} /> Upload Custom Voice (6-30 sec)
-                                    </button>
+                                        <Upload size={13} /> Clone Custom Voice — opens Voice Library
+                                    </Link>
                                 </div>
                             </motion.div>
                         )}
@@ -234,7 +248,7 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
                 {/* Emotion slider */}
                 <div className="space-y-2.5">
                     <div className="flex justify-between items-center">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Emotion Intensity</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Emotion Intensity</label>
                         <span className="text-xs font-bold text-narrify-purple">{emotionLabel}</span>
                     </div>
                     <input
@@ -247,7 +261,7 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
                             background: `linear-gradient(90deg, #9333EA ${speaker.emotion * 100}%, #E5E7EB ${speaker.emotion * 100}%)`
                         }}
                     />
-                    <div className="flex justify-between text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                    <div className="flex justify-between text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">
                         <span>Calm</span>
                         <span>Intense</span>
                     </div>
@@ -256,7 +270,7 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
                 {/* Speed slider */}
                 <div className="space-y-2.5">
                     <div className="flex justify-between items-center">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Speech Speed</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Speech Speed</label>
                         <span className="text-xs font-bold text-narrify-blue">{speaker.speed.toFixed(1)}x — {speedLabel}</span>
                     </div>
                     <input
@@ -269,14 +283,14 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
                             background: `linear-gradient(90deg, #4F46E5 ${((speaker.speed - 0.5) / 1.5) * 100}%, #E5E7EB ${((speaker.speed - 0.5) / 1.5) * 100}%)`
                         }}
                     />
-                    <div className="flex justify-between text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                    <div className="flex justify-between text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">
                         <span>0.5x</span>
                         <span>2.0x</span>
                     </div>
                 </div>
 
                 {/* Clone voice button */}
-                <button className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-slate-200 text-sm font-bold text-slate-400 hover:border-narrify-blue hover:text-narrify-blue transition-colors">
+                <button className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-border text-sm font-bold text-muted-foreground hover:border-narrify-blue hover:text-narrify-blue transition-colors">
                     <Mic size={14} />
                     Clone Custom Voice for {speaker.name.split(' ')[0]}
                 </button>
@@ -286,7 +300,7 @@ const SpeakerCard = ({ speaker, index, apiVoices }: { speaker: Speaker; index: n
 };
 
 export const Step3Speakers = () => {
-    const { setStep, speakers, setSpeakers, setProcessedData, fileId, processedData, isProcessing, setIsProcessing, progress, setProgress } = useNarrifyStore();
+    const { setStep, speakers, setSpeakers, setProcessedData, fileId, processedData, isProcessing, setIsProcessing, progress, setProgress, selectedChapterIds, setSelectedChapterIds } = useNarrifyStore();
     const [analysisStep, setAnalysisStep] = useState(0);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
     const [realSegmentsCount, setRealSegmentsCount] = useState<number | null>(null);
@@ -298,8 +312,28 @@ export const Step3Speakers = () => {
         }
         // Fetch real voices from FastAPI for the voice picker
         apiService.listVoices().then((res) => {
-            const list: ApiVoice[] = res.data?.voices ?? [];
+            const raw: ApiVoice[] = res.data?.voices ?? [];
+
+            // Filter out any voice IDs that the user has locally deleted
+            // (keeps voices page deletion consistent with speaker assignment)
+            let deletedIds = new Set<string>();
+            try {
+                deletedIds = new Set(JSON.parse(localStorage.getItem('narrify_voices_deleted') || '[]'));
+            } catch { /* ignore */ }
+            const list = raw.filter(v => !deletedIds.has(v.id));
+
             setApiVoices(list);
+
+            // Validate currently assigned voiceIds — reset any that no longer exist
+            if (list.length > 0) {
+                const validIds = new Set(list.map(v => v.id));
+                const store = useNarrifyStore.getState();
+                store.speakers.forEach(sp => {
+                    if (sp.voiceId && !validIds.has(sp.voiceId)) {
+                        store.updateSpeaker(sp.id, { voiceId: undefined });
+                    }
+                });
+            }
         }).catch(() => { /* silent — falls back to DEFAULT_VOICES */ });
     }, []);
 
@@ -411,7 +445,7 @@ export const Step3Speakers = () => {
                             initial={{ opacity: 0, y: 6 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -6 }}
-                            className="text-slate-500 font-medium"
+                            className="text-muted-foreground font-medium"
                         >
                             {ANALYSIS_STEPS[analysisStep]}
                         </motion.p>
@@ -419,7 +453,7 @@ export const Step3Speakers = () => {
 
                     <div className="space-y-3 mt-2">
                         <div className="flex justify-between text-sm font-semibold">
-                            <span className="text-slate-500">NLP Pipeline</span>
+                            <span className="text-muted-foreground">NLP Pipeline</span>
                             <span className="text-narrify-blue">{progress}%</span>
                         </div>
                         <Progress value={progress} className="h-3" />
@@ -446,9 +480,9 @@ export const Step3Speakers = () => {
                         { label: "Speakers Found", value: progress > 60 ? "..." : "...", },
                         { label: "Emotions Detected", value: progress > 80 ? "..." : "...", },
                     ].map((s, i) => (
-                        <div key={i} className="bg-white rounded-2xl border border-slate-100 p-4">
+                        <div key={i} className="bg-card rounded-2xl border border-border p-4">
                             <p className="text-xl font-black narrify-text-gradient">{s.value}</p>
-                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">{s.label}</p>
+                            <p className="text-[11px] text-muted-foreground font-medium mt-0.5">{s.label}</p>
                         </div>
                     ))}
                 </div>
@@ -525,16 +559,64 @@ export const Step3Speakers = () => {
                     { label: "Emotion Profiles", value: processedData ? "✓" : "—" },
                     { label: "Est. Duration", value: processedData ? "~TBD" : "~TBD" },
                 ].map((s, i) => (
-                    <div key={i} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-center">
+                    <div key={i} className="bg-card rounded-2xl border border-border shadow-sm p-4 text-center">
                         <p className="text-xl font-black narrify-text-gradient">{s.value}</p>
-                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">{s.label}</p>
+                        <p className="text-[11px] text-muted-foreground font-medium mt-0.5">{s.label}</p>
                     </div>
                 ))}
             </div>
 
+            {/* Chapter Selection */}
+            {processedData?.chapters?.length > 0 && (() => {
+                const chapters = processedData.chapters as { chapter_id: number; chapter_title: string }[];
+                const allIds = chapters.map((c) => c.chapter_id);
+                const selected = selectedChapterIds.length > 0 ? selectedChapterIds : allIds;
+                const toggle = (id: number) => {
+                    const current = selectedChapterIds.length > 0 ? selectedChapterIds : allIds;
+                    setSelectedChapterIds(
+                        current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
+                    );
+                };
+                return (
+                    <div className="pt-4 border-t border-border">
+                        <div className="flex items-center justify-between mb-3">
+                            <p className="text-sm font-semibold text-foreground">Select chapters to generate</p>
+                            <button
+                                className="text-xs text-narrify-blue hover:underline"
+                                onClick={() => setSelectedChapterIds(selected.length === allIds.length ? [] : allIds)}
+                            >
+                                {selected.length === allIds.length ? 'Deselect all' : 'Select all'}
+                            </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {chapters.map((ch) => {
+                                const isSelected = selected.includes(ch.chapter_id);
+                                return (
+                                    <button
+                                        key={ch.chapter_id}
+                                        onClick={() => toggle(ch.chapter_id)}
+                                        className={cn(
+                                            'px-3 py-1.5 rounded-xl text-xs font-medium border transition-all',
+                                            isSelected
+                                                ? 'bg-narrify-blue text-white border-narrify-blue shadow-sm'
+                                                : 'bg-muted text-muted-foreground border-border hover:border-narrify-blue/40'
+                                        )}
+                                    >
+                                        {ch.chapter_title || `Chapter ${ch.chapter_id}`}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        {selected.length === 0 && (
+                            <p className="text-xs text-red-500 mt-2">Select at least one chapter to generate.</p>
+                        )}
+                    </div>
+                );
+            })()}
+
             {/* Navigation */}
-            <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-                <Button variant="ghost" onClick={() => setStep(2)} className="gap-2 text-slate-500">
+            <div className="flex justify-between items-center pt-4 border-t border-border">
+                <Button variant="ghost" onClick={() => setStep(2)} className="gap-2 text-muted-foreground">
                     <ChevronLeft size={16} /> Back
                 </Button>
                 <Button

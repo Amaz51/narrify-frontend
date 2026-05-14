@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 export const api = axios.create({
     baseURL: API_BASE_URL,
@@ -52,7 +52,7 @@ export const apiService = {
     processPDF: (fileId: string, detectEmotions = true) =>
         api.post('/process/v2', { file_id: fileId, detect_emotions: detectEmotions }),
 
-    // Generate audiobook
+    // Generate audiobook (blocking)
     generateAudiobook: (data: {
         file_id: string;
         chapters: any[];
@@ -61,6 +61,19 @@ export const apiService = {
         source_language: string;
         target_language: string;
     }) => api.post('/generate/from-processing', data),
+
+    // Generate audiobook async (returns task_id immediately)
+    generateAudiobookAsync: (data: {
+        file_id: string;
+        chapters: any[];
+        emotion_intensity: number;
+        base_speed: number;
+        source_language: string;
+        target_language: string;
+    }) => api.post('/generate/async', data),
+
+    // Poll task status
+    getTaskStatus: (taskId: string) => api.get(`/tasks/${taskId}`),
 
     // Download audio file
     downloadAudio: (filename: string) =>
@@ -79,4 +92,7 @@ export const apiService = {
             headers: { 'Content-Type': 'multipart/form-data' },
         });
     },
+
+    // Delete a voice (cloned voices only)
+    deleteVoice: (voiceId: string) => api.delete(`/voices/${voiceId}`),
 };

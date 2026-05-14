@@ -50,7 +50,41 @@ export interface AdminStats {
 
 export interface PaginatedResult<T> {
     count: number;
+    next: string | null;
+    previous: string | null;
     results: T[];
+}
+
+export interface EvaluationResult {
+    id: number;
+    book_id: number;
+    book_title: string;
+    book_author: string;
+    evaluated_by_username: string | null;
+    evaluated_at: string;
+    status: 'pending' | 'completed' | 'failed';
+    error_message: string;
+    audio_url: string;
+    wer: number | null;
+    cer: number | null;
+    transcribed_text: string;
+    utmos_score: number | null;
+    utmos_method: string;
+    snr_db: number | null;
+    intended_emotion: string;
+    detected_emotion: string;
+    emotion_match: boolean | null;
+    ser_confidence: number | null;
+    secs_score: number | null;
+    overall_score: number | null;
+    raw_results: Record<string, unknown>;
+}
+
+export interface EvaluationRequest {
+    audio_url?: string;
+    reference_url?: string;
+    intended_emotion?: string;
+    original_text?: string;
 }
 
 export const adminApi = {
@@ -62,6 +96,8 @@ export const adminApi = {
         subscription_plan?: string;
         is_active?: boolean;
         ordering?: string;
+        page?: number;
+        page_size?: number;
     }): Promise<PaginatedResult<AdminUser>> =>
         djangoApi.get('/admin/users/', { params }).then((r) => r.data),
 
@@ -79,6 +115,8 @@ export const adminApi = {
         status?: string;
         user_id?: number;
         ordering?: string;
+        page?: number;
+        page_size?: number;
     }): Promise<PaginatedResult<AdminBook>> =>
         djangoApi.get('/admin/books/', { params }).then((r) => r.data),
 
@@ -90,4 +128,22 @@ export const adminApi = {
 
     deleteBook: (id: number): Promise<void> =>
         djangoApi.delete(`/admin/books/${id}/`).then((r) => r.data),
+
+    // ── Evaluation ────────────────────────────────────────────────────────────
+    // 5-minute timeout — evaluation loads ML models and runs inference
+    evaluateBook: (bookId: number, payload: EvaluationRequest): Promise<EvaluationResult> =>
+        djangoApi.post(`/admin/books/${bookId}/evaluate/`, payload, { timeout: 300_000 }).then((r) => r.data),
+
+    getEvaluations: (params?: {
+        book_id?: number;
+        page?: number;
+        page_size?: number;
+    }): Promise<{ count: number; results: EvaluationResult[] }> =>
+        djangoApi.get('/admin/evaluations/', { params }).then((r) => r.data),
+
+    getEvaluation: (id: number): Promise<EvaluationResult> =>
+        djangoApi.get(`/admin/evaluations/${id}/`).then((r) => r.data),
+
+    deleteEvaluation: (id: number): Promise<void> =>
+        djangoApi.delete(`/admin/evaluations/${id}/`).then((r) => r.data),
 };

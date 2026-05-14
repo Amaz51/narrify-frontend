@@ -11,7 +11,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     return (
         <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
             <Provider store={store}>
-                <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+                <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
                     {children}
                 </ThemeProvider>
             </Provider>
