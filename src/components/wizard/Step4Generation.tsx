@@ -160,8 +160,17 @@ export const Step4Generation = () => {
                 } else if (task.status === 'error') {
                     await handleGenerationError(task.error || 'Generation failed on server.', resolvedBookId);
                 }
-            } catch (e) {
-                console.warn('Poll error (will retry):', e);
+            } catch (e: any) {
+                const httpStatus = e?.response?.status;
+                if (httpStatus === 404) {
+                    // Task missing from server — FastAPI restarted and lost the task
+                    await handleGenerationError(
+                        'The generation task was lost (server restarted). Please retry.',
+                        bookIdRef.current
+                    );
+                } else {
+                    console.warn('Poll error (will retry):', e);
+                }
             }
         }, 3000);
     };
