@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const FASTAPI_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/api$/, '');
+
 const nextConfig = {
     reactStrictMode: false,
     images: {
@@ -9,12 +11,12 @@ const nextConfig = {
             },
         ],
     },
-    // Proxy /api/* → FastAPI backend so we avoid CORS issues in production
+    // Proxy /api/* → FastAPI backend to avoid CORS in production
     async rewrites() {
         return [
             {
                 source: '/api/:path*',
-                destination: 'http://localhost:8000/api/:path*',
+                destination: `${FASTAPI_BASE}/api/:path*`,
             },
         ];
     },

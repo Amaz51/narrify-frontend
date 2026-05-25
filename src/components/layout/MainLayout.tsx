@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NarrifyLogo } from '@/assets/logo/NarrifyLogo';
@@ -52,7 +52,6 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
     if (isAuthPage) return <>{children}</>;
 
     return (
-        <Suspense fallback={null}>
         <div className="min-h-screen bg-background transition-colors duration-300">
             {/* ── Navbar ─────────────────────────────────────────────── */}
             <header className="sticky top-0 z-50 glassmorphism border-b border-border/60 transition-colors duration-300">
@@ -287,6 +286,5 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                 </div>
             </footer>
         </div>
-        </Suspense>
     );
 };
