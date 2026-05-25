@@ -675,7 +675,9 @@ export default function AudiobookDetailPage() {
                                                 animate={isPlaying && Math.abs((i / WAVEFORM.length) * 100 - progress) < 6
                                                     ? { height: [`${h}%`, `${Math.min(h + 22, 100)}%`, `${h}%`] }
                                                     : { height: `${h}%` }}
-                                                transition={{ duration: 0.35, repeat: Infinity, repeatType: "reverse" }}
+                                                transition={isPlaying && Math.abs((i / WAVEFORM.length) * 100 - progress) < 6
+                                                    ? { duration: 0.35, repeat: Infinity, repeatType: "reverse" }
+                                                    : { duration: 0.2 }}
                                             />
                                         );
                                     })}
